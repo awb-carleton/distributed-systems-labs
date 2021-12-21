@@ -16,15 +16,15 @@ cd mr-tmp || exit 1
 rm -f mr-*
 
 # make sure software is freshly built.
-(cd ../../mrapps && go build $RACE -buildmode=plugin wc.go) || exit 1
-(cd ../../mrapps && go build $RACE -buildmode=plugin indexer.go) || exit 1
-(cd ../../mrapps && go build $RACE -buildmode=plugin mtiming.go) || exit 1
-(cd ../../mrapps && go build $RACE -buildmode=plugin rtiming.go) || exit 1
-(cd ../../mrapps && go build $RACE -buildmode=plugin crash.go) || exit 1
-(cd ../../mrapps && go build $RACE -buildmode=plugin nocrash.go) || exit 1
-(cd .. && go build $RACE mrmaster.go) || exit 1
-(cd .. && go build $RACE mrworker.go) || exit 1
-(cd .. && go build $RACE mrsequential.go) || exit 1
+(cd ../../mrapps && GO111MODULE=off go build $RACE -buildmode=plugin wc.go) || exit 1
+(cd ../../mrapps && GO111MODULE=off go build $RACE -buildmode=plugin indexer.go) || exit 1
+(cd ../../mrapps && GO111MODULE=off go build $RACE -buildmode=plugin mtiming.go) || exit 1
+(cd ../../mrapps && GO111MODULE=off go build $RACE -buildmode=plugin rtiming.go) || exit 1
+(cd ../../mrapps && GO111MODULE=off go build $RACE -buildmode=plugin crash.go) || exit 1
+(cd ../../mrapps && GO111MODULE=off go build $RACE -buildmode=plugin nocrash.go) || exit 1
+(cd ../../master && GO111MODULE=off go build $RACE mrmaster.go && mv mrmaster ../main) || exit 1
+(cd ../../worker && GO111MODULE=off go build $RACE mrworker.go && mv mrworker ../main) || exit 1
+(cd ../../sequential && GO111MODULE=off go build $RACE mrsequential.go && mv mrsequential ../main) || exit 1
 
 failed_any=0
 
