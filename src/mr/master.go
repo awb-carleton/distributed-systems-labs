@@ -1,29 +1,51 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 )
 
-type Master struct {
-	// Your definitions here.
+const (
+	MapTask    = "map"
+	ReduceTask = "reduce"
+)
 
+type Task struct {
+	InputFiles  []string
+	OutputFiles []string
+	Type        string
+	id          int
 }
 
-// Your code here -- RPC handlers for the worker to call.
+type Master struct {
+	// work to be assigned
+	TasksToAssign chan Task
+	// work in progress
+	TasksInProgress map[int]Task
+	NReduce         int
+	MasterLock      sync.Mutex
+	// work done (debugging only?)
+}
 
-//
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
+func (m *Master) GetTask(args *GetTaskArgs, reply *GetTaskReply) error {
+	if len(m.TasksToAssign) == 0 {
+		// TODO wait on condition variable if there is no task to assign
+		panic("no map tasks to assign")
+	}
+	task := <-m.TasksToAssign
+	reply.InputFiles = task.InputFiles
+	reply.OutputFiles = task.OutputFiles
+	reply.FuncType = task.Type
+	// TODO start thread to monitor task
 	return nil
 }
+
+// TODO DoneTask (incl. check for starting reduce tasks when NReduce > 0)
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -46,11 +68,9 @@ func (m *Master) server() {
 // if the entire job has finished.
 //
 func (m *Master) Done() bool {
-	ret := false
-
-	// Your code here.
-
-	return ret
+	m.MasterLock.Lock()
+	defer m.MasterLock.Unlock()
+	return len(m.TasksInProgress) == 0 && len(m.TasksToAssign) == 0
 }
 
 //
@@ -59,9 +79,19 @@ func (m *Master) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeMaster(files []string, nReduce int) *Master {
-	m := Master{}
-
-	// Your code here.
+	tasks := make(chan Task, len(files))
+	taskId := 0
+	for _, f := range files {
+		outputs := make([]string, 0, nReduce)
+		for i := 0; i < nReduce; i++ {
+			outputs = append(outputs, fmt.Sprintf("mr-%d-%d", taskId, i))
+		}
+		fmt.Printf("Adding task %d on %s\n", taskId, f)
+		tasks <- Task{[]string{f}, outputs, MapTask, taskId}
+		taskId++
+	}
+	m := Master{TasksToAssign: tasks, TasksInProgress: make(map[int]Task, len(files)),
+		NReduce: nReduce}
 
 	m.server()
 	return &m

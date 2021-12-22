@@ -1,10 +1,13 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
 	"net/rpc"
+	"os"
 )
 
 //
@@ -31,34 +34,62 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	// Your worker implementation here.
+	for {
+		// Ask master process for work (RPC)
+		funcType, inputs, outputs := CallGetTask()
+		switch funcType {
+		case "map":
+			// read each input file, call mapf on contents
+			intermediate := []KeyValue{}
+			for _, filename := range inputs {
+				file, err := os.Open(filename)
+				if err != nil {
+					log.Fatalf("cannot open %v", filename)
+				}
+				content, err := ioutil.ReadAll(file)
+				if err != nil {
+					log.Fatalf("cannot read %v", filename)
+				}
+				file.Close()
+				kva := mapf(filename, string(content))
+				intermediate = append(intermediate, kva...)
+			}
 
-	// uncomment to send the Example RPC to the master.
-	// CallExample()
+			// create output files
+			output_files := make([]*json.Encoder, len(outputs))
+			for i, filename := range outputs {
+				file, err := os.Create(filename)
+				output_files[i] = json.NewEncoder(file)
+				if err != nil {
+					log.Fatalf("cannot open %v", filename)
+				}
+			}
 
+			// write intermediate key-value pairs to output files
+			// use ihash(key) % len(output_files) to choose which output file to use
+			for _, kv := range intermediate {
+				output_files[ihash(kv.Key)%len(output_files)].Encode(&kv)
+			}
+			// TODO call Master.DoneTask
+		case "reduce":
+			// TODO
+		case "quit":
+			os.Exit(0)
+		default:
+			panic(fmt.Sprintf("%v not a recognized task type", funcType))
+		}
+	}
 }
 
-//
-// example function to show how to make an RPC call to the master.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func CallExample() {
-
-	// declare an argument structure.
-	args := ExampleArgs{}
-
-	// fill in the argument(s).
-	args.X = 99
-
-	// declare a reply structure.
-	reply := ExampleReply{}
-
-	// send the RPC request, wait for the reply.
-	call("Master.Example", &args, &reply)
-
-	// reply.Y should be 100.
-	fmt.Printf("reply.Y %v\n", reply.Y)
+func CallGetTask() (string, []string, []string) {
+	reply := GetTaskReply{}
+	if didCall := call("Master.GetTask", &GetTaskArgs{}, &reply); didCall {
+		fmt.Printf("task assigned (%v: %v -> %v)\n", reply.FuncType, reply.InputFiles, reply.OutputFiles)
+		return reply.FuncType, reply.InputFiles, reply.OutputFiles
+	} else {
+		fmt.Println("could not connect to master, exiting...")
+		return "quit", []string{}, []string{}
+	}
 }
 
 //
