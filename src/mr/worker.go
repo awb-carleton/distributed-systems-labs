@@ -38,7 +38,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		// Ask master process for work (RPC)
 		funcType, inputs, outputs := CallGetTask()
 		switch funcType {
-		case "map":
+		case MapTask:
 			// read each input file, call mapf on contents
 			intermediate := []KeyValue{}
 			for _, filename := range inputs {
@@ -56,6 +56,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			}
 
 			// create output files
+			// TODO use temp output names and atomic rename
 			output_files := make([]*json.Encoder, len(outputs))
 			for i, filename := range outputs {
 				file, err := os.Create(filename)
@@ -71,9 +72,9 @@ func Worker(mapf func(string, string) []KeyValue,
 				output_files[ihash(kv.Key)%len(output_files)].Encode(&kv)
 			}
 			// TODO call Master.DoneTask
-		case "reduce":
+		case ReduceTask:
 			// TODO
-		case "quit":
+		case QuitTask:
 			os.Exit(0)
 		default:
 			panic(fmt.Sprintf("%v not a recognized task type", funcType))

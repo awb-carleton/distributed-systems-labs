@@ -13,6 +13,7 @@ import (
 const (
 	MapTask    = "map"
 	ReduceTask = "reduce"
+	QuitTask   = "quit"
 )
 
 type Task struct {
@@ -23,12 +24,14 @@ type Task struct {
 }
 
 type Master struct {
+	NReduce int
 	// work to be assigned
 	TasksToAssign chan Task
 	// work in progress
 	TasksInProgress map[int]Task
-	NReduce         int
-	MasterLock      sync.Mutex
+	// Synchronization
+	MasterLock sync.Mutex
+	NeedWork   sync.Cond
 	// work done (debugging only?)
 }
 
@@ -79,7 +82,7 @@ func (m *Master) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeMaster(files []string, nReduce int) *Master {
-	tasks := make(chan Task, len(files))
+	tasks := make(chan Task, max(len(files), nReduce))
 	taskId := 0
 	for _, f := range files {
 		outputs := make([]string, 0, nReduce)
@@ -95,4 +98,11 @@ func MakeMaster(files []string, nReduce int) *Master {
 
 	m.server()
 	return &m
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
