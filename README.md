@@ -2,7 +2,7 @@
 
 Course website [here](http://nil.csail.mit.edu/6.824/2020/schedule.html)
 
-- [ ] Lab 1: MapReduce
+- [x] Lab 1: MapReduce
 
 - [ ] Lab 2: Raft Consensus Algorithm
   - [ ] Lab 2A: Raft Leader Election
