@@ -78,6 +78,7 @@ type Raft struct {
 	state         string              // whether this server is a leader, follower, or candidate
 	applyCh       chan ApplyMsg       // channel server will use to send commands to local state machine
 	electionTimer time.Duration       // elapsed time since last heartbeat or election start
+	electionCh    chan bool           // channel for election monitor to tell startElection to give up
 }
 
 type Leader struct {
@@ -132,7 +133,7 @@ func (rf *Raft) readPersist(data []byte) {
 }
 
 //
-// example RequestVote RPC arguments structure.
+// RequestVote RPC arguments structure.
 //
 type RequestVoteArgs struct {
 	Term         int // candidates term
@@ -142,7 +143,7 @@ type RequestVoteArgs struct {
 }
 
 //
-// example RequestVote RPC reply structure.
+// RequestVote RPC reply structure.
 //
 type RequestVoteReply struct {
 	Term        int  // rf.currentTerm, for the candidate to update itself if necessary
@@ -173,7 +174,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 }
 
 //
-// example code to send a RequestVote RPC to a server.
+// code to send a RequestVote RPC to a server.
 // server is the index of the target server in rf.peers[].
 // expects RPC arguments in args.
 // fills in *reply with RPC reply, so caller should
@@ -201,9 +202,16 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
 //
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply,
+	resultCh chan ReceiveVoteInfo) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	resultCh <- ReceiveVoteInfo{server, ok}
 	return ok
+}
+
+type ReceiveVoteInfo struct {
+	peerIndex int
+	ok        bool
 }
 
 //
@@ -271,16 +279,41 @@ func (rf *Raft) startElection() {
 	go rf.electionMonitor(rand.Int63n(500), time.Now())
 
 	// request votes in parallel
-	replys := []RequestVoteReply{}
+	replys := make([]RequestVoteReply, len(rf.peers))
+	replyCh := make(chan ReceiveVoteInfo)
 	for i := 0; i < len(rf.peers); i++ {
-		if i != rf.me {
-			go rf.sendRequestVote(i, &args, &replys[i])
+		if i != args.CandidateId {
+			go rf.sendRequestVote(i, &args, &replys[i], replyCh)
 		}
 	}
 
 	// tally votes
-	// TODO wait on condition variable, proceed when we've been signaled (len(peers) - 1) // 2 times by peers returning
-	//      or a signal generated in electionMonitor that indicates election is over (channel or boolean?)
+	votes := 1 // we voted for ourselves
+	total := 1
+	for votes < len(rf.peers)/2 && total < len(rf.peers) {
+		select {
+		case <-rf.electionCh:
+			// timeout is up, end election
+			// TODO is there state that needs to change here? Or cleanup?
+			return
+		case rvi := <-replyCh:
+			if rvi.ok {
+				total++
+				if replys[rvi.peerIndex].VoteGranted {
+					votes++
+				} else if replys[rvi.peerIndex].Term > args.Term {
+					// TODO we are out of date, end election and become follower
+					return
+				}
+			} else {
+				// RPC did not succeed, resend
+				go rf.sendRequestVote(rvi.peerIndex, &args, &replys[rvi.peerIndex], replyCh)
+			}
+		}
+	}
+	if votes > len(rf.peers)/2 {
+		// TODO become leader
+	}
 }
 
 //
@@ -289,6 +322,7 @@ func (rf *Raft) startElection() {
 // timeout is in integer milliseconds
 //
 func (rf *Raft) electionMonitor(timeout int64, start time.Time) {
+	// TODO redesign using ticker and channel
 	for {
 		rf.mu.Lock()
 		rf.electionTimer += time.Since(start)
