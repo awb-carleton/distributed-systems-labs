@@ -89,6 +89,7 @@ type Raft struct {
 func (rf *Raft) GetState() (int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	log.Printf("[%v] getting state: (%v, %v)", rf.me, rf.currentTerm, rf.state)
 	return rf.currentTerm, rf.state == LEADER
 }
 
@@ -206,7 +207,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	resultCh chan RPCInfo) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	resultCh <- RPCInfo{server, ok}
-	log.Printf("[%v] returned from sending RequestVote to %v\n", rf.me, server)
+	// log.Printf("[%v] returned from sending RequestVote to %v\n", rf.me, server)
 	return ok
 }
 
@@ -253,7 +254,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// check to update term
 	if args.Term > rf.currentTerm {
-		rf.becomeFollower(args.Term)
+		log.Printf("[%v] becoming a follower, updating term to %v\n", rf.me, args.Term)
+		rf.currentTerm = args.Term
+		rf.state = FOLLOWER
+		rf.votedFor = NULL_VOTE
 	}
 
 	if len(args.Entries) == 0 {
@@ -401,6 +405,7 @@ func (rf *Raft) waitForHeartbeats(timer *time.Timer, replys []AppendEntriesReply
 			// check if we need to become a follower due to getting a reply with a higher term
 			rf.mu.Lock()
 			if r.ok && replys[r.peerIndex].Term > rf.currentTerm {
+				log.Printf("[%v] becoming a follower, updating term to %v\n", rf.me, replys[r.peerIndex].Term)
 				rf.currentTerm = replys[r.peerIndex].Term
 				rf.state = FOLLOWER
 				rf.votedFor = NULL_VOTE
